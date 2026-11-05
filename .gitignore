@@ -1,0 +1,34 @@
+# 编辑器 / IDE
+.idea
+*.iml
+*.swp
+.aider*
+.serena/
+
+# 本地虚拟环境与构建 / 测试缓存
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+
+# 运行期产物（不入库）
+images/
+logs/
+jsonl/
+dist/
+state/
+config.json
+prompts/
+price_history/
+data/
+*.log
+server*.log
+
+# 敏感配置与登录态
+.env
+.env.local
+.env.bak
+xianyu_state.json
