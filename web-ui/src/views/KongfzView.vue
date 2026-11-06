@@ -97,7 +97,12 @@ const windowMeta = ref<{
 const previewKeyword = ref('')
 const previewLimit = ref(20)
 const previewItems = ref<KongfzProductInfo[]>([])
-const previewMeta = ref<{ scene: string; fromState: string | null; totalFound: number } | null>(null)
+const previewMeta = ref<{
+  scene: string
+  fromState: string | null
+  totalFound: number
+  playwrightUsed: boolean
+} | null>(null)
 const isPreviewLoading = ref(false)
 
 const previewLimitOptions = [10, 20, 30, 50]
@@ -243,6 +248,7 @@ function openEditForm(monitor: KongfzMonitor) {
     ai_prompt_criteria_file: '',
     account_state_file: monitor.account_state_file,
     account_strategy: monitor.account_state_file ? 'fixed' : 'auto',
+    kongfz_playwright: monitor.kongfz_playwright || 'auto',
     free_shipping: false,
     new_publish_option: null,
     region: null,
@@ -438,6 +444,7 @@ async function runPreview() {
       scene: response.scene,
       fromState: response.from_state_file,
       totalFound: response.total_found,
+      playwrightUsed: response.playwright_used ?? false,
     }
   } catch (e) {
     previewItems.value = []
@@ -454,6 +461,7 @@ function useMonitorKeywordForPreview(monitor: KongfzMonitor) {
 }
 
 function statusBadge(monitor: KongfzMonitor) {
+  if (monitor.is_running) return { label: t('kongfz.status.running'), variant: 'default' as const }
   if (!monitor.enabled) return { label: t('common.disabled'), variant: 'outline' as const }
   if (monitor.window_size > 0) return { label: t('kongfz.status.watching'), variant: 'default' as const }
   return { label: t('kongfz.status.pending'), variant: 'outline' as const }
@@ -665,6 +673,34 @@ onUnmounted(stopLoginPolling)
               <Badge :variant="statusBadge(monitor).variant">{{ statusBadge(monitor).label }}</Badge>
               <Badge v-if="monitor.cron" variant="outline">{{ monitor.cron }}</Badge>
               <Badge
+                v-if="(monitor.kongfz_playwright || 'auto') === 'on'"
+                variant="outline"
+                class="border-sky-200 bg-sky-50 text-sky-700"
+              >
+                {{ t('kongfz.form.playwrightOn') }}
+              </Badge>
+              <Badge
+                v-else-if="(monitor.kongfz_playwright || 'auto') === 'off'"
+                variant="outline"
+                class="border-slate-200 bg-slate-50 text-slate-600"
+              >
+                {{ t('kongfz.form.playwrightOff') }}
+              </Badge>
+              <Badge
+                v-else
+                variant="outline"
+                class="border-slate-200 bg-slate-50 text-slate-500"
+              >
+                {{ t('kongfz.form.playwrightAuto') }}
+              </Badge>
+              <Badge
+                v-if="monitor.fetch_mode"
+                variant="outline"
+                class="border-indigo-200 bg-indigo-50 text-indigo-700"
+              >
+                {{ t('kongfz.monitors.fetchModeLabel') }}: {{ monitor.fetch_mode === 'playwright' ? t('kongfz.monitors.modeBrowser') : t('kongfz.monitors.modeHttp') }}
+              </Badge>
+              <Badge
                 v-if="monitor.new_count > 0"
                 variant="default"
                 class="border-emerald-200 bg-emerald-50 text-emerald-700"
@@ -685,6 +721,13 @@ onUnmounted(stopLoginPolling)
               >
                 {{ t('kongfz.monitors.runSkipped') }}
               </Badge>
+              <Badge
+                v-else-if="monitor.last_run_status === 'empty'"
+                variant="outline"
+                class="border-amber-200 bg-amber-50 text-amber-700"
+              >
+                {{ t('kongfz.monitors.runEmpty') }}
+              </Badge>
             </div>
             <p class="text-sm text-slate-600">
               {{ t('kongfz.monitors.keyword') }}: <span class="font-medium">{{ monitor.keyword }}</span>
@@ -693,7 +736,7 @@ onUnmounted(stopLoginPolling)
               {{ t('kongfz.monitors.window') }}: {{ monitor.window_size }} / {{ monitor.latest_count }} ·
               {{ t('kongfz.monitors.lastRun') }}: {{ lastRunText(monitor) }} ·
               {{ t('kongfz.monitors.nextRun') }}: {{ nextRunText(monitor) }} ·
-              {{ t('kongfz.monitors.account') }}: {{ monitor.account?.name || t('kongfz.form.accountAuto') }}
+              {{ t('kongfz.monitors.account') }}: {{ monitor.resolved_account?.name || monitor.account?.name || t('kongfz.form.accountAuto') }}
             </p>
             <p class="text-xs text-slate-400">{{ runResultText(monitor) }}</p>
             <p v-if="monitor.last_run_status === 'failed' && monitor.last_run_message" class="text-xs text-red-600">
@@ -870,6 +913,7 @@ onUnmounted(stopLoginPolling)
           {{ t('kongfz.preview.meta', { scene: previewMeta.scene, total: previewMeta.totalFound }) }}
           <span v-if="previewMeta.fromState"> · {{ t('kongfz.preview.state', { file: previewMeta.fromState }) }}</span>
           <span v-else> · {{ t('kongfz.preview.guest') }}</span>
+          · {{ previewMeta.playwrightUsed ? t('kongfz.monitors.modeBrowser') : t('kongfz.monitors.modeHttp') }}
         </div>
 
         <div v-if="previewItems.length" class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">

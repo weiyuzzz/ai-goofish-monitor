@@ -31,6 +31,8 @@ export interface Task {
   notify_all_new: boolean;
   /** 孔夫子：商品下架/售出被移除时也推送 */
   notify_removal: boolean;
+  /** 孔夫子：每任务抓取方式 auto / on / off */
+  kongfz_playwright?: string | null;
 }
 
 export type TaskGenerationStatus = 'queued' | 'running' | 'completed' | 'failed';

@@ -136,6 +136,19 @@ class ProcessService:
             child_env.update(env_manager.read_env())
         except Exception:  # noqa: BLE001
             pass
+        # 每任务 Playwright 模式：auto 跟随上面的全局开关；on/off 强制覆盖。
+        try:
+            task = find_task_by_id_sync(task_id) or find_task_by_name_sync(task_name)
+            if task is not None and str(getattr(task, "platform", "xianyu") or "xianyu").strip().lower() == "kongfz":
+                from src.domain.models.task import _normalize_playwright_mode
+
+                mode = _normalize_playwright_mode(getattr(task, "kongfz_playwright", None))
+                if mode == "on":
+                    child_env["KONGFZ_USE_PLAYWRIGHT"] = "true"
+                elif mode == "off":
+                    child_env["KONGFZ_USE_PLAYWRIGHT"] = "false"
+        except Exception:  # noqa: BLE001
+            pass
         child_env["PYTHONIOENCODING"] = "utf-8"
         child_env["PYTHONUTF8"] = "1"
         return await asyncio.create_subprocess_exec(

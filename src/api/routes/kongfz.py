@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 
 from src.infrastructure.config.env_manager import env_manager
 
-from src.api.dependencies import get_scheduler_service, get_task_service
+from src.api.dependencies import get_process_service, get_scheduler_service, get_task_service
 from src.infrastructure.persistence.storage_names import (
     PLATFORM_KONGFZ,
     build_result_filename,
@@ -27,6 +27,7 @@ from src.kongfz.accounts import (
     describe_state_file,
     list_state_files,
     next_state_path,
+    resolve_task_state_file,
     state_dir,
 )
 from src.kongfz.client import KongfzClient, load_cookie_header
@@ -40,6 +41,7 @@ from src.services.result_storage_service import (
     load_monitor_window,
     query_result_records,
 )
+from src.services.process_service import ProcessService
 from src.services.scheduler_service import SchedulerService
 from src.services.task_service import TaskService
 
@@ -299,6 +301,16 @@ async def verify_account(payload: VerifyRequest):
     if not cookie_header:
         return {"ok": False, "message": "该文件不包含 kongfz 域 cookie", "path": path}
 
+    # 与「实际抓取」保持一致：开启 Playwright 模式时用浏览器校验，否则用 httpx。
+    if _env_bool_value("KONGFZ_USE_PLAYWRIGHT", False):
+        try:
+            from src.kongfz.playwright_fetcher import verify_login_with_playwright
+
+            ok, message = await verify_login_with_playwright(state_file=path)
+        except Exception as exc:  # noqa: BLE001
+            ok, message = False, f"浏览器校验失败: {exc}"
+        return {"ok": bool(ok), "message": message, "path": path}
+
     async with KongfzClient(cookie_header=cookie_header, cookie_source=path) as client:
         ok, message = await client.verify_login_state()
     return {"ok": bool(ok), "message": message, "path": path}
@@ -322,6 +334,7 @@ async def delete_account(name: str):
 async def get_monitors(
     service: TaskService = Depends(get_task_service),
     scheduler_service: SchedulerService = Depends(get_scheduler_service),
+    process_service: ProcessService = Depends(get_process_service),
 ):
     """孔夫子监控任务概览（含监控窗口规模与最近一次运行结果）。"""
     tasks = _kongfz_tasks(await service.get_all_tasks())
@@ -337,7 +350,16 @@ async def get_monitors(
             if task.id is not None and scheduler_service is not None
             else None
         )
-        accounts = describe_state_file(task.account_state_file) if task.account_state_file else None
+        # 解析该任务「实际」使用的登录态（自动模式下会被分摊到某个账号），
+        # 让界面显示真实账号，而不只是一个笼统的「自动」。
+        task_dict = task.model_dump()
+        resolved_path = (
+            task.account_state_file
+            if task.account_state_file
+            else resolve_task_state_file(task_dict)
+        )
+        resolved_account = describe_state_file(resolved_path) if resolved_path else None
+        is_running = bool(process_service.is_running(task.id)) if task.id is not None else False
         monitors.append(
             {
                 "id": task.id,
@@ -358,12 +380,16 @@ async def get_monitors(
                 "last_run_new_count": report.get("new_listing_count", 0),
                 "last_run_backfill_count": report.get("backfill_count", 0),
                 "last_run_removed_count": report.get("removed_count", 0),
+                "fetch_mode": report.get("fetch_mode") or None,
                 "next_run_at": next_run.isoformat() if next_run else None,
                 # 兼容旧字段：这里是「窗口内最新商品的入库时间」
                 "latest_crawl_time": latest or None,
                 "latest_run_at": report.get("last_run_at") or (latest or None),
                 "account_state_file": task.account_state_file,
-                "account": accounts,
+                "account": resolved_account,
+                "resolved_account": resolved_account,
+                "is_running": is_running,
+                "kongfz_playwright": getattr(task, "kongfz_playwright", None),
             }
         )
     return {"monitors": monitors, "total": len(monitors)}

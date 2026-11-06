@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import os
 import random
 from typing import Any, Optional
@@ -45,6 +46,7 @@ from src.kongfz.window import (
     summarize_plan,
 )
 from src.services.monitor_run_report_service import (
+    STATUS_EMPTY,
     STATUS_OK,
     record_monitor_run_sync,
 )
@@ -272,6 +274,12 @@ async def run_kongfz_task(task_config: dict, debug_limit: int = 0) -> int:
     else:
         print("[孔夫子] 未配置登录态，将按游客模式尝试（容易触发登录墙，建议先在账号栏扫码登录）")
 
+    # 游客会话 cookie 按「关键词 + 账号」隔离成独立文件，避免多任务同时写入
+    # 同一个 data/kongfz_guest_cookies.json 造成竞态覆盖。
+    guest_seed = f"{keyword}|{state_file or 'guest'}"
+    guest_hash = hashlib.md5(guest_seed.encode("utf-8")).hexdigest()[:12]
+    guest_cookie_file = os.path.join("data", f"kongfz_guest_{guest_hash}.json")
+
     scan_limit = resolve_scan_limit(latest_count)
     page_size = resolve_page_size(scan_limit)
 
@@ -308,6 +316,7 @@ async def run_kongfz_task(task_config: dict, debug_limit: int = 0) -> int:
             cookie_header=cookie_header,
             cookie_source=state_file,
             proxy=task_config.get("proxy") or None,
+            cookie_file=guest_cookie_file,
         ) as client:
             # 伪装层：随机启动抖动（打散固定节奏）→ 会话预热 → 抓取 → 少量浏览动作
             await _start_jitter()
@@ -378,19 +387,30 @@ async def run_kongfz_task(task_config: dict, debug_limit: int = 0) -> int:
             await _notify_removed(removed, rows_by_key, plan.sold_keys, keyword, task_name)
 
     # 运行报表：记录「这一轮真的跑了」以及本轮结果，供界面展示
+    effective_playwright = bool(use_playwright)
+    if fetch.items:
+        run_status = STATUS_OK
+        empty_note = ""
+    else:
+        # 跑通了但站点返回 0 条：极可能是反爬 / 登录墙，不应显示成绿色「成功」
+        run_status = STATUS_EMPTY
+        empty_note = "本轮未抓到任何商品（可能触发反爬/登录墙，建议检查账号与开关）"
+    run_message = (
+        f"窗口 {len(plan.window_keys)} 条 · 新上架 {plan.new_listing_count} · "
+        f"递补 {plan.backfill_count} · 移除 {len(plan.removed_keys)}"
+        + (f" · {empty_note}" if empty_note else "")
+    )
     record_monitor_run_sync(
         platform=PLATFORM,
         keyword=keyword,
         task_name=task_name,
-        status=STATUS_OK,
-        message=(
-            f"窗口 {len(plan.window_keys)} 条 · 新上架 {plan.new_listing_count} · "
-            f"递补 {plan.backfill_count} · 移除 {len(plan.removed_keys)}"
-        ),
+        status=run_status,
+        message=run_message,
         window_size=len(plan.window_keys),
         new_listing_count=plan.new_listing_count,
         backfill_count=plan.backfill_count,
         removed_count=len(plan.removed_keys),
+        fetch_mode="playwright" if effective_playwright else "httpx",
     )
 
     cleanup_task_images(task_config.get("task_name", "default"))

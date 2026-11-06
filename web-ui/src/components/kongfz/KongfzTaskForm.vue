@@ -33,6 +33,7 @@ const form = ref({
   latest_count: 10,
   cron: '',
   account_state_file: AUTO_ACCOUNT_VALUE,
+  kongfz_playwright: 'auto',
   notify_removal: false,
   enabled: true,
 })
@@ -74,6 +75,7 @@ watch(
         latest_count: task.latest_count ?? 10,
         cron: task.cron ?? '',
         account_state_file: task.account_state_file || AUTO_ACCOUNT_VALUE,
+        kongfz_playwright: task.kongfz_playwright || 'auto',
         notify_removal: task.notify_removal ?? false,
         enabled: task.enabled ?? true,
       }
@@ -88,6 +90,7 @@ watch(
         latest_count: 10,
         cron: '',
         account_state_file: AUTO_ACCOUNT_VALUE,
+        kongfz_playwright: 'auto',
         notify_removal: false,
         enabled: true,
       }
@@ -117,6 +120,7 @@ function handleSubmit() {
     cron: form.value.cron.trim() || null,
     account_state_file: accountState,
     account_strategy: accountState ? 'fixed' : 'auto',
+    kongfz_playwright: form.value.kongfz_playwright || 'auto',
     notify_all_new: true,
     notify_removal: form.value.notify_removal,
     decision_mode: 'keyword',
@@ -164,6 +168,20 @@ function handleSubmit() {
           </SelectContent>
         </Select>
         <p class="text-xs text-slate-500">{{ t('kongfz.form.accountHint') }}</p>
+      </div>
+      <div class="grid gap-2">
+        <Label for="kfz-pw-mode">{{ t('kongfz.form.playwrightMode') }}</Label>
+        <Select v-model="form.kongfz_playwright">
+          <SelectTrigger id="kfz-pw-mode">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="auto">{{ t('kongfz.form.playwrightAuto') }}</SelectItem>
+            <SelectItem value="on">{{ t('kongfz.form.playwrightOn') }}</SelectItem>
+            <SelectItem value="off">{{ t('kongfz.form.playwrightOff') }}</SelectItem>
+          </SelectContent>
+        </Select>
+        <p class="text-xs text-slate-500">{{ t('kongfz.form.playwrightModeHint') }}</p>
       </div>
     </div>
 

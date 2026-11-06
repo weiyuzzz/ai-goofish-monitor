@@ -119,6 +119,14 @@ def _normalize_latest_count(value) -> int:
     return max(LATEST_COUNT_MIN, min(LATEST_COUNT_MAX, count))
 
 
+def _normalize_playwright_mode(value) -> Optional[str]:
+    """孔夫子每任务抓取方式：auto(跟随全局开关) / on(强制浏览器) / off(强制 HTTP)。"""
+    if value is None:
+        return None
+    normalized = str(value).strip().lower()
+    return normalized if normalized in {"auto", "on", "off"} else None
+
+
 def _normalize_optional_string(value):
     if value == "" or value == "null" or value == "undefined" or value is None:
         return None
@@ -167,11 +175,17 @@ class Task(BaseModel):
     latest_count: int = DEFAULT_LATEST_COUNT
     notify_all_new: bool = True
     notify_removal: bool = False
+    kongfz_playwright: Optional[str] = None
 
     @model_validator(mode="before")
     @classmethod
     def normalize_legacy_keyword_payload(cls, values):
         return _normalize_payload_keywords(values)
+
+    @field_validator("kongfz_playwright", mode="before")
+    @classmethod
+    def normalize_kongfz_playwright(cls, value):
+        return _normalize_playwright_mode(value)
 
     @field_validator("keyword_rules", mode="before")
     @classmethod
@@ -225,11 +239,17 @@ class TaskCreate(BaseModel):
     latest_count: int = DEFAULT_LATEST_COUNT
     notify_all_new: bool = True
     notify_removal: bool = False
+    kongfz_playwright: Optional[str] = None
 
     @model_validator(mode="before")
     @classmethod
     def normalize_legacy_keyword_payload(cls, values):
         return _normalize_payload_keywords(values)
+
+    @field_validator("kongfz_playwright", mode="before")
+    @classmethod
+    def normalize_kongfz_playwright(cls, value):
+        return _normalize_playwright_mode(value)
 
     @field_validator("min_price", "max_price", mode="before")
     @classmethod
@@ -303,11 +323,17 @@ class TaskUpdate(BaseModel):
     latest_count: Optional[int] = None
     notify_all_new: Optional[bool] = None
     notify_removal: Optional[bool] = None
+    kongfz_playwright: Optional[str] = None
 
     @model_validator(mode="before")
     @classmethod
     def normalize_legacy_keyword_payload(cls, values):
         return _normalize_payload_keywords(values)
+
+    @field_validator("kongfz_playwright", mode="before")
+    @classmethod
+    def normalize_kongfz_playwright(cls, value):
+        return _normalize_playwright_mode(value)
 
     @field_validator("min_price", "max_price", mode="before")
     @classmethod
@@ -379,11 +405,17 @@ class TaskGenerateRequest(BaseModel):
     latest_count: int = DEFAULT_LATEST_COUNT
     notify_all_new: bool = True
     notify_removal: bool = False
+    kongfz_playwright: Optional[str] = None
 
     @model_validator(mode="before")
     @classmethod
     def normalize_legacy_keyword_payload(cls, values):
         return _normalize_payload_keywords(values)
+
+    @field_validator("kongfz_playwright", mode="before")
+    @classmethod
+    def normalize_kongfz_playwright(cls, value):
+        return _normalize_playwright_mode(value)
 
     @field_validator("latest_count", mode="before")
     @classmethod

@@ -53,7 +53,7 @@ export interface KongfzMonitor {
   backfill_count: number
   /** 最近一次真实运行时间（每轮都会更新，与是否发现新商品无关） */
   last_run_at: string | null
-  last_run_status: 'ok' | 'failed' | 'skipped' | null
+  last_run_status: 'ok' | 'failed' | 'skipped' | 'empty' | null
   last_run_message: string | null
   last_run_new_count: number
   last_run_backfill_count: number
@@ -65,6 +65,14 @@ export interface KongfzMonitor {
   latest_crawl_time: string | null
   account_state_file: string | null
   account: KongfzAccount | null
+  /** 实际解析到的登录态（自动模式下会被分摊到某个账号，这里显示真实账号） */
+  resolved_account: KongfzAccount | null
+  /** 该任务当前是否正在子进程里运行 */
+  is_running: boolean
+  /** 每任务抓取方式：auto / on / off（null 视作 auto） */
+  kongfz_playwright: string | null
+  /** 最近一轮实际使用的抓取方式：httpx / playwright（仅运行过后才有） */
+  fetch_mode: string | null
 }
 
 export interface KongfzProductInfo {

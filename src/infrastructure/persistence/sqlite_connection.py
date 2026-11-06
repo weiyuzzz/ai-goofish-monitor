@@ -197,6 +197,7 @@ def init_schema(conn: sqlite3.Connection) -> None:
         conn.execute(statement)
     _migrate_result_items_status(conn)
     _migrate_platform_columns(conn)
+    _migrate_monitor_reports_columns(conn)
     conn.commit()
 
 
@@ -221,6 +222,8 @@ def _migrate_platform_columns(conn: sqlite3.Connection) -> None:
     _add_column_if_missing(conn, "tasks", "latest_count", "INTEGER NOT NULL DEFAULT 50")
     _add_column_if_missing(conn, "tasks", "notify_all_new", "INTEGER NOT NULL DEFAULT 1")
     _add_column_if_missing(conn, "tasks", "notify_removal", "INTEGER NOT NULL DEFAULT 0")
+    # 孔夫子每任务 Playwright 模式：auto(跟随全局开关) / on(强制浏览器) / off(强制 HTTP)
+    _add_column_if_missing(conn, "tasks", "kongfz_playwright", "TEXT")
     _add_column_if_missing(conn, "result_items", "platform", "TEXT NOT NULL DEFAULT 'xianyu'")
     _add_column_if_missing(conn, "result_items", "window_rank", "INTEGER")
     _add_column_if_missing(conn, "result_items", "entry_type", "TEXT")
@@ -228,6 +231,11 @@ def _migrate_platform_columns(conn: sqlite3.Connection) -> None:
         "CREATE INDEX IF NOT EXISTS idx_results_platform_filename"
         " ON result_items(platform, result_filename, status, crawl_time DESC)"
     )
+
+
+def _migrate_monitor_reports_columns(conn: sqlite3.Connection) -> None:
+    """为运行报表补充「本轮实际抓取方式」字段。"""
+    _add_column_if_missing(conn, "monitor_run_reports", "fetch_mode", "TEXT")
 
 
 def _migrate_result_items_status(conn: sqlite3.Connection) -> None:

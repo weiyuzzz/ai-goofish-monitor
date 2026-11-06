@@ -107,14 +107,16 @@ class SqliteTaskRepository(TaskRepository):
                     ai_prompt_base_file, ai_prompt_criteria_file, account_state_file,
                     account_strategy, free_shipping, new_publish_option, region,
                     decision_mode, keyword_rules_json, is_running,
-                    platform, latest_count, notify_all_new, notify_removal
+                    platform, latest_count, notify_all_new, notify_removal,
+                    kongfz_playwright
                 ) VALUES (
                     :id, :task_name, :enabled, :keyword, :description, :analyze_images,
                     :max_pages, :personal_only, :min_price, :max_price, :cron,
                     :ai_prompt_base_file, :ai_prompt_criteria_file, :account_state_file,
                     :account_strategy, :free_shipping, :new_publish_option, :region,
                     :decision_mode, :keyword_rules_json, :is_running,
-                    :platform, :latest_count, :notify_all_new, :notify_removal
+                    :platform, :latest_count, :notify_all_new, :notify_removal,
+                    :kongfz_playwright
                 )
                 """,
                 payload,
@@ -145,6 +147,9 @@ class SqliteTaskRepository(TaskRepository):
         values["is_running"] = int(task.is_running)
         values["notify_all_new"] = int(task.notify_all_new)
         values["notify_removal"] = int(task.notify_removal)
+        from src.domain.models.task import _normalize_playwright_mode
+
+        values["kongfz_playwright"] = _normalize_playwright_mode(task.kongfz_playwright)
         values["keyword_rules_json"] = json.dumps(task.keyword_rules or [], ensure_ascii=False)
         values.pop("keyword_rules", None)
         return values

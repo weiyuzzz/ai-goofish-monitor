@@ -55,6 +55,9 @@ def kongfz_env(tmp_path, monkeypatch):
     monkeypatch.setenv("APP_DATABASE_FILE", str(db_path))
     monkeypatch.setenv("ACCOUNT_STATE_DIR", str(tmp_path / "state"))
     monkeypatch.delenv("KONGFZ_LIST_SCENE", raising=False)
+    # 强制走 httpx 分支，才能命中下面被 monkeypatch 的 FakeClient；
+    # 否则本地 .env 里 KONGFZ_USE_PLAYWRIGHT=true 时，测试会真的拉起浏览器打网络。
+    monkeypatch.setenv("KONGFZ_USE_PLAYWRIGHT", "false")
     # 测试里不要真的随机等待
     monkeypatch.setenv("KONGFZ_START_JITTER_SECONDS", "0")
 

@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import glob
+import hashlib
 import json
 import os
 from datetime import datetime
@@ -93,17 +94,30 @@ def describe_state_file(path: str) -> dict:
     return info
 
 
+def _account_distribution_key(task_config: dict) -> str:
+    """用于把多个「自动」任务稳定地分摊到不同账号：优先用 id，其次任务名。"""
+    return str((task_config or {}).get("id") or (task_config or {}).get("task_name") or "")
+
+
 def resolve_task_state_file(task_config: dict) -> Optional[str]:
-    """解析任务使用的孔夫子登录态文件。"""
+    """解析任务使用的孔夫子登录态文件。
+
+    - 显式指定且存在的账号直接采用；
+    - 未指定时，在「全部有效账号」之间按任务 id/名称做确定性分摊，
+      避免所有自动任务都挤在第一个账号上互相争抢；
+    - 没有任何有效账号时，回退到第一个存在的文件并给出告警。
+    """
     explicit = str((task_config or {}).get("account_state_file") or "").strip()
     if explicit and os.path.exists(explicit):
         return explicit
     if explicit:
         print(f"[孔夫子] 指定的登录态文件不存在: {explicit}")
 
-    for entry in list_state_files():
-        if entry.get("valid"):
-            return str(entry["path"])
+    valid = [entry for entry in list_state_files() if entry.get("valid")]
+    if valid:
+        key = _account_distribution_key(task_config)
+        index = int(hashlib.md5(key.encode("utf-8")).hexdigest(), 16) % len(valid)
+        return str(valid[index]["path"])
     for entry in list_state_files():
         if entry.get("exists"):
             print(f"[孔夫子] 登录态文件 {entry['name']} 未包含 kongfz cookie，可能未登录")

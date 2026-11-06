@@ -20,6 +20,7 @@ from src.ai_handler import cleanup_task_images, send_ntfy_notification
 from src.failure_guard import FailureGuard
 from src.infrastructure.persistence.sqlite_task_repository import SqliteTaskRepository
 from src.kongfz.client import KongfzBlockedError, KongfzLoginRequiredError
+from src.kongfz.playwright_fetcher import _is_playwright_enabled
 from src.kongfz.runner import run_kongfz_task
 from src.services.monitor_run_report_service import (
     STATUS_FAILED,
@@ -29,6 +30,11 @@ from src.services.monitor_run_report_service import (
 
 PLATFORM = "kongfz"
 FAILURE_GUARD = FailureGuard()
+
+# 浏览器（Playwright）同时运行数上限：避免多任务同时拉起过多浏览器实例打满资源。
+# 仅对「实际走 Playwright 的任务」计数，httpx 任务不受限。
+_MAX_CONCURRENT_BROWSERS = max(1, int(os.getenv("KONGFZ_MAX_CONCURRENT_BROWSERS", "1") or 1))
+_BROWSER_SEMAPHORE = asyncio.Semaphore(_MAX_CONCURRENT_BROWSERS)
 
 
 def normalize_keywords(value) -> list[str]:
@@ -194,7 +200,13 @@ async def main() -> int:
             )
             return 0
         try:
-            count = await run_kongfz_task(task_config, debug_limit=args.debug_limit)
+            # Playwright 任务占用浏览器并发额度；httpx 任务直接放行。
+            if _is_playwright_enabled():
+                browser_gate: contextlib.AbstractAsyncContextManager = _BROWSER_SEMAPHORE
+            else:
+                browser_gate = contextlib.nullcontext()
+            async with browser_gate:
+                count = await run_kongfz_task(task_config, debug_limit=args.debug_limit)
             FAILURE_GUARD.record_success(task_name)
             return count
         except KongfzBlockedError as exc:

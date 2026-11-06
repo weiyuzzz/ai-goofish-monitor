@@ -18,6 +18,8 @@ from src.infrastructure.persistence.storage_names import normalize_platform
 STATUS_OK = "ok"
 STATUS_FAILED = "failed"
 STATUS_SKIPPED = "skipped"
+# 本轮跑通了，但站点返回 0 条商品（可能触发反爬 / 登录墙）。不应显示成绿色「成功」。
+STATUS_EMPTY = "empty"
 
 
 def build_task_key(platform: str, keyword: str) -> str:
@@ -39,6 +41,7 @@ def record_monitor_run_sync(
     new_listing_count: int = 0,
     backfill_count: int = 0,
     removed_count: int = 0,
+    fetch_mode: str = "",
     run_at: str | None = None,
 ) -> None:
     """写入 / 覆盖一条运行报表（同步，供子进程直接调用）。"""
@@ -57,8 +60,8 @@ def record_monitor_run_sync(
                 INSERT INTO monitor_run_reports (
                     task_key, platform, keyword, task_name, last_run_at, last_status,
                     last_message, window_size, new_listing_count, backfill_count,
-                    removed_count, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    removed_count, fetch_mode, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(task_key) DO UPDATE SET
                     task_name = excluded.task_name,
                     last_run_at = excluded.last_run_at,
@@ -68,6 +71,7 @@ def record_monitor_run_sync(
                     new_listing_count = excluded.new_listing_count,
                     backfill_count = excluded.backfill_count,
                     removed_count = excluded.removed_count,
+                    fetch_mode = excluded.fetch_mode,
                     updated_at = excluded.updated_at
                 """,
                 (
@@ -82,6 +86,7 @@ def record_monitor_run_sync(
                     int(new_listing_count or 0),
                     int(backfill_count or 0),
                     int(removed_count or 0),
+                    (fetch_mode or "")[:16],
                     now,
                 ),
             )
@@ -102,7 +107,7 @@ def load_monitor_run_reports(platform: str) -> dict[str, dict]:
         rows = conn.execute(
             """
             SELECT keyword, task_name, last_run_at, last_status, last_message,
-                   window_size, new_listing_count, backfill_count, removed_count
+                   window_size, new_listing_count, backfill_count, removed_count, fetch_mode
             FROM monitor_run_reports
             WHERE platform = ?
             """,
@@ -118,6 +123,7 @@ def load_monitor_run_reports(platform: str) -> dict[str, dict]:
             "new_listing_count": int(row["new_listing_count"] or 0),
             "backfill_count": int(row["backfill_count"] or 0),
             "removed_count": int(row["removed_count"] or 0),
+            "fetch_mode": str(row["fetch_mode"] or ""),
         }
         for row in rows
     }
