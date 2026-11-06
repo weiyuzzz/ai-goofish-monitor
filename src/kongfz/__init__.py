@@ -12,6 +12,10 @@ from src.kongfz.parser import (  # noqa: F401
     build_record,
     parse_kongfz_item,
 )
+from src.kongfz.playwright_fetcher import (  # noqa: F401
+    _is_playwright_enabled,
+    fetch_items_with_playwright,
+)
 from src.kongfz.window import WindowPlan, build_window_plan  # noqa: F401
 
 __all__ = [
@@ -21,8 +25,10 @@ __all__ = [
     "KongfzError",
     "KongfzLoginRequiredError",
     "WindowPlan",
+    "_is_playwright_enabled",
     "build_item_unique_key",
     "build_record",
     "build_window_plan",
+    "fetch_items_with_playwright",
     "parse_kongfz_item",
 ]

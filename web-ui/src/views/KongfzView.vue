@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import {
   BookOpen,
   ExternalLink,
+  Globe,
   KeyRound,
   Loader2,
   Pencil,
@@ -52,6 +53,10 @@ const accounts = ref<KongfzAccount[]>([])
 const stateDir = ref('')
 const isLoading = ref(false)
 const error = ref<Error | null>(null)
+
+// Playwright 备用模式开关
+const playwrightEnabled = ref(false)
+const isTogglingPlaywright = ref(false)
 
 const loginJob = ref<{
   jobId: string
@@ -157,8 +162,40 @@ async function fetchAccounts() {
   }
 }
 
+async function fetchPlaywrightConfig() {
+  try {
+    const config = await kongfzApi.getKongfzConfig()
+    playwrightEnabled.value = config.playwright_enabled
+  } catch (e) {
+    console.error(e)
+  }
+}
+
+async function togglePlaywright(value: boolean) {
+  isTogglingPlaywright.value = true
+  try {
+    await kongfzApi.updatePlaywrightToggle(value)
+    playwrightEnabled.value = value
+    toast({
+      title: value
+        ? t('kongfz.playwright.enabled')
+        : t('kongfz.playwright.disabled'),
+      description: t('kongfz.playwright.effectiveNote'),
+    })
+  } catch (e) {
+    playwrightEnabled.value = !value
+    toast({
+      title: t('kongfz.errors.playwright'),
+      description: (e as Error).message,
+      variant: 'destructive',
+    })
+  } finally {
+    isTogglingPlaywright.value = false
+  }
+}
+
 async function fetchAll() {
-  await Promise.all([fetchMonitors(), fetchAccounts()])
+  await Promise.all([fetchMonitors(), fetchAccounts(), fetchPlaywrightConfig()])
 }
 
 async function loadWindowItems(monitorId: number) {
@@ -359,7 +396,10 @@ async function handleImportAccount() {
   isImporting.value = true
   try {
     const response = await kongfzApi.importAccount({ content })
-    toast({ title: t('kongfz.messages.imported'), description: response.path })
+    toast({
+      title: t('kongfz.messages.imported'),
+      description: `${response.path} · ${t('kongfz.account.effectiveNote')}`,
+    })
     isImportOpen.value = false
     importDraft.value = ''
     await fetchAccounts()
@@ -374,7 +414,10 @@ async function removeAccount(account: KongfzAccount) {
   deletingAccount.value = account.name
   try {
     await kongfzApi.deleteAccount(account.name)
-    toast({ title: t('kongfz.messages.accountDeleted') })
+    toast({
+      title: t('kongfz.messages.accountDeleted'),
+      description: t('kongfz.account.effectiveNote'),
+    })
     await fetchAccounts()
   } catch (e) {
     toast({ title: t('common.error'), description: (e as Error).message, variant: 'destructive' })
@@ -477,6 +520,35 @@ onUnmounted(stopLoginPolling)
       <strong class="font-bold">{{ t('common.error') }}</strong>
       <span class="block sm:inline">{{ error.message }}</span>
     </div>
+
+    <!-- Playwright 备用模式开关 -->
+    <Card class="app-surface overflow-hidden border-none">
+      <CardContent class="py-3">
+        <div class="flex items-center justify-between gap-4">
+          <div class="flex items-center gap-3">
+            <Globe class="h-5 w-5 flex-shrink-0 text-sky-600" />
+            <div>
+              <p class="text-sm font-medium text-slate-800">{{ t('kongfz.playwright.title') }}</p>
+              <p class="text-xs text-slate-500">{{ t('kongfz.playwright.description') }}</p>
+              <p class="mt-1 text-xs text-amber-500">{{ t('kongfz.playwright.effectiveHint') }}</p>
+            </div>
+          </div>
+          <div class="flex items-center gap-2">
+            <Badge v-if="playwrightEnabled" variant="default" class="border-sky-200 bg-sky-50 text-sky-700">
+              {{ t('kongfz.playwright.on') }}
+            </Badge>
+            <Badge v-else variant="outline" class="text-slate-500">
+              {{ t('kongfz.playwright.off') }}
+            </Badge>
+            <Switch
+              :model-value="playwrightEnabled"
+              :disabled="isTogglingPlaywright"
+              @update:model-value="togglePlaywright"
+            />
+          </div>
+        </div>
+      </CardContent>
+    </Card>
 
     <!-- 账号配置栏 -->
     <Card class="app-surface overflow-hidden border-none">

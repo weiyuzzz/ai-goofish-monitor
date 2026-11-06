@@ -127,6 +127,15 @@ class ProcessService:
     ) -> asyncio.subprocess.Process:
         preexec_fn = os.setsid if sys.platform != "win32" else None
         child_env = os.environ.copy()
+        # 让子进程使用最新的 .env（含 Playwright 开关等）：
+        # Web UI 切换开关只写 .env 文件、不刷新服务器自身 os.environ，
+        # 若不在此叠加，spawn 出的子进程会沿用服务器启动时的旧值，导致开关改动要等服务器重启才生效。
+        try:
+            from src.infrastructure.config.env_manager import env_manager
+
+            child_env.update(env_manager.read_env())
+        except Exception:  # noqa: BLE001
+            pass
         child_env["PYTHONIOENCODING"] = "utf-8"
         child_env["PYTHONUTF8"] = "1"
         return await asyncio.create_subprocess_exec(

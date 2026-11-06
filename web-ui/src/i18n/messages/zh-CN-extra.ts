@@ -279,6 +279,16 @@ const zhCNExtra = {
   kongfz: {
     title: '孔夫子监控',
     subtitle: '按「最新上架」排序同步监控窗口：始终保存最新的 N 条在售商品，新上架自动补入、下架或售出自动移除。',
+    playwright: {
+      title: 'Playwright 备用获取模式',
+      description: '开启后使用真实浏览器获取孔夫子数据，可有效绕过反爬虫检测。关闭时使用原有 HTTP 接口方式。',
+      on: '浏览器模式',
+      off: 'HTTP 模式',
+      enabled: '已开启 Playwright 备用获取模式',
+      disabled: '已关闭 Playwright 备用获取模式，使用原有 HTTP 方式',
+      effectiveHint: '提示：切换后将在下一次任务运行时生效（当前正在运行的任务不受影响）',
+      effectiveNote: '开关已保存，将在下一次抓取 / 重启任务时生效；当前正在运行的任务不受影响',
+    },
     actions: {
       newMonitor: '新建监控',
       viewWindow: '查看窗口',
@@ -300,6 +310,7 @@ const zhCNExtra = {
       empty: '还没有孔夫子登录态，请先点击「扫码登录新账号」。',
       cookieOk: '含 kongfz Cookie',
       cookieMissing: '缺少 kongfz Cookie',
+      effectiveNote: '账号变更将在下一次抓取时生效',
       updatedAt: '更新时间',
       cookieCount: '{count} 个 Cookie',
       verify: '校验有效性',
@@ -397,6 +408,7 @@ const zhCNExtra = {
       loginFailed: '扫码登录未成功',
       preview: '试抓预览失败',
       import: '导入登录态失败',
+      playwright: '切换 Playwright 模式失败',
     },
   },
 }

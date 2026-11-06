@@ -6,12 +6,15 @@ import contextlib
 import json
 import os
 import sys
+import time
 import uuid
 from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
+
+from src.infrastructure.config.env_manager import env_manager
 
 from src.api.dependencies import get_scheduler_service, get_task_service
 from src.infrastructure.persistence.storage_names import (
@@ -42,6 +45,13 @@ from src.services.task_service import TaskService
 
 router = APIRouter(prefix="/api/kongfz", tags=["kongfz"])
 
+# 预览接口并发 / 频率限制：避免多次点击瞬间拉起多个浏览器实例导致资源打满。
+_PREVIEW_SEMAPHORE = asyncio.Semaphore(
+    max(1, int(os.getenv("KONGFZ_PREVIEW_MAX_CONCURRENT", "1") or 1))
+)
+_PREVIEW_LAST_START = 0.0
+_PREVIEW_MIN_INTERVAL = max(1.0, float(os.getenv("KONGFZ_PREVIEW_MIN_INTERVAL", "3") or 3))
+
 LOGIN_ENTRY = "kongfz_login.py"
 LOG_DIR = "logs"
 LOGIN_JOB_TTL_SECONDS = 3600
@@ -62,6 +72,21 @@ class VerifyRequest(BaseModel):
 class ImportRequest(BaseModel):
     content: str
     name: Optional[str] = None
+
+
+class PlaywrightToggleRequest(BaseModel):
+    enabled: bool
+
+
+def _env_bool_value(key: str, default: bool = False) -> bool:
+    raw = env_manager.get_value(key)
+    if raw is None or not str(raw).strip():
+        return default
+    return str(raw).strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def _normalize_bool_value(value: bool) -> str:
+    return "true" if value else "false"
 
 
 def _kongfz_tasks(tasks) -> list:
@@ -399,41 +424,74 @@ async def preview_latest(
     state_file: Optional[str] = None,
 ):
     """试抓预览：读取站点最新排序的前 N 条，不写入任何数据。"""
-    resolved_state = state_file or None
-    if not resolved_state:
-        for entry in list_state_files():
-            if entry.get("valid"):
-                resolved_state = str(entry["path"])
-                break
-
-    cookie_header = load_cookie_header(resolved_state) if resolved_state else ""
-
-    async with KongfzClient(
-        cookie_header=cookie_header,
-        cookie_source=resolved_state,
-    ) as client:
-        try:
-            result = await client.fetch_items(
-                keyword.strip(),
-                scan_limit=max(limit, 10),
-                page_size=max(20, min(100, limit)),
+    # 并发 / 频率限制：同一时刻只允许有限个预览浏览器在跑，且两次预览之间留最小间隔
+    if _PREVIEW_SEMAPHORE.locked():
+        raise HTTPException(
+            status_code=429,
+            detail="已有预览正在执行，请稍候再试（避免同时拉起多个浏览器）",
+        )
+    async with _PREVIEW_SEMAPHORE:
+        global _PREVIEW_LAST_START
+        now = time.monotonic()
+        if now - _PREVIEW_LAST_START < _PREVIEW_MIN_INTERVAL:
+            raise HTTPException(
+                status_code=429,
+                detail=f"预览请求过于频繁，请至少间隔 {_PREVIEW_MIN_INTERVAL:.0f} 秒",
             )
-        except Exception as exc:  # noqa: BLE001
-            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        _PREVIEW_LAST_START = now
 
-    items = [
-        parse_kongfz_item(item)
-        for item in result.items
-        if isinstance(item, dict) and not item.get("isSoldOut")
-    ][:limit]
+        resolved_state = state_file or None
+        if not resolved_state:
+            for entry in list_state_files():
+                if entry.get("valid"):
+                    resolved_state = str(entry["path"])
+                    break
 
-    return {
-        "keyword": keyword.strip(),
-        "scene": result.scene,
-        "from_state_file": resolved_state,
-        "total_found": result.total_found,
-        "items": items,
-    }
+        cookie_header = load_cookie_header(resolved_state) if resolved_state else ""
+
+        use_playwright = _env_bool_value("KONGFZ_USE_PLAYWRIGHT", False)
+
+        if use_playwright:
+            from src.kongfz.playwright_fetcher import fetch_items_with_playwright
+
+            try:
+                result = await fetch_items_with_playwright(
+                    keyword=keyword.strip(),
+                    scan_limit=max(limit, 10),
+                    page_size=max(20, min(100, limit)),
+                    cookie_header=cookie_header,
+                    state_file=resolved_state,
+                )
+            except Exception as exc:  # noqa: BLE001
+                raise HTTPException(status_code=502, detail=str(exc)) from exc
+        else:
+            async with KongfzClient(
+                cookie_header=cookie_header,
+                cookie_source=resolved_state,
+            ) as client:
+                try:
+                    result = await client.fetch_items(
+                        keyword.strip(),
+                        scan_limit=max(limit, 10),
+                        page_size=max(20, min(100, limit)),
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+        items = [
+            parse_kongfz_item(item)
+            for item in result.items
+            if isinstance(item, dict) and not item.get("isSoldOut")
+        ][:limit]
+
+        return {
+            "keyword": keyword.strip(),
+            "scene": result.scene,
+            "from_state_file": resolved_state,
+            "total_found": result.total_found,
+            "items": items,
+            "playwright_used": use_playwright,
+        }
 
 
 @router.get("/config")
@@ -446,4 +504,20 @@ async def get_kongfz_config():
         "list_scene": os.getenv("KONGFZ_LIST_SCENE", ""),
         "login_entry": LOGIN_ENTRY,
         "accounts": list_state_files(),
+        "playwright_enabled": _env_bool_value("KONGFZ_USE_PLAYWRIGHT", False),
+        "playwright_headless": _env_bool_value("KONGFZ_PLAYWRIGHT_HEADLESS", True),
+    }
+
+
+@router.put("/config/playwright")
+async def update_playwright_toggle(payload: PlaywrightToggleRequest):
+    """切换 Playwright 备用获取模式开关。"""
+    success = env_manager.update_values({
+        "KONGFZ_USE_PLAYWRIGHT": _normalize_bool_value(payload.enabled),
+    })
+    if not success:
+        raise HTTPException(status_code=500, detail="更新 Playwright 开关失败")
+    return {
+        "message": f"Playwright 备用模式已{'开启' if payload.enabled else '关闭'}",
+        "playwright_enabled": payload.enabled,
     }

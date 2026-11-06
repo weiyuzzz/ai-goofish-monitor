@@ -121,10 +121,37 @@ export interface KongfzPreviewResponse {
   from_state_file: string | null
   total_found: number
   items: KongfzProductInfo[]
+  playwright_used?: boolean
+}
+
+export interface KongfzConfig {
+  state_dir: string
+  default_state_path: string
+  request_interval: string
+  list_scene: string
+  login_entry: string
+  accounts: KongfzAccount[]
+  playwright_enabled: boolean
+  playwright_headless: boolean
 }
 
 export async function getAccounts(): Promise<KongfzAccountListResponse> {
   return await http('/api/kongfz/accounts')
+}
+
+export async function getKongfzConfig(): Promise<KongfzConfig> {
+  return await http('/api/kongfz/config')
+}
+
+export async function updatePlaywrightToggle(enabled: boolean): Promise<{
+  message: string
+  playwright_enabled: boolean
+}> {
+  return await http('/api/kongfz/config/playwright', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ enabled }),
+  })
 }
 
 export async function startLogin(payload: {

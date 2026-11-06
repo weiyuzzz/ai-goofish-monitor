@@ -26,6 +26,10 @@ from src.kongfz.client import (
     KongfzClient,
     KongfzLoginRequiredError,
 )
+from src.kongfz.playwright_fetcher import (
+    _is_playwright_enabled,
+    fetch_items_with_playwright,
+)
 from src.kongfz.parser import (
     build_item_unique_key,
     build_notification_payload,
@@ -279,78 +283,99 @@ async def run_kongfz_task(task_config: dict, debug_limit: int = 0) -> int:
         f"窗口 {latest_count} 条，本地已保存 {len(existing_keys)} 条"
     )
 
-    async with KongfzClient(
-        cookie_header=cookie_header,
-        cookie_source=state_file,
-        proxy=task_config.get("proxy") or None,
-    ) as client:
-        # 伪装层：随机启动抖动（打散固定节奏）→ 会话预热 → 抓取 → 少量浏览动作
+    use_playwright = _is_playwright_enabled()
+    if use_playwright:
+        print("[孔夫子] Playwright 备用模式已开启，使用浏览器方式获取数据")
+
+    if use_playwright:
+        # Playwright 备用模式：用真实浏览器获取数据
         await _start_jitter()
-        await client.warmup(keyword)
+        try:
+            fetch = await fetch_items_with_playwright(
+                keyword=keyword,
+                scan_limit=scan_limit,
+                page_size=page_size,
+                cookie_header=cookie_header,
+                state_file=state_file,
+                proxy=task_config.get("proxy") or None,
+            )
+        except Exception as exc:  # noqa: BLE001
+            print(f"[孔夫子] Playwright 获取失败，回退到 httpx 方式: {exc}")
+            use_playwright = False
 
-        fetch = await client.fetch_items(
-            keyword,
-            scan_limit=scan_limit,
-            page_size=page_size,
-        )
+    if not use_playwright:
+        async with KongfzClient(
+            cookie_header=cookie_header,
+            cookie_source=state_file,
+            proxy=task_config.get("proxy") or None,
+        ) as client:
+            # 伪装层：随机启动抖动（打散固定节奏）→ 会话预热 → 抓取 → 少量浏览动作
+            await _start_jitter()
+            await client.warmup(keyword)
 
-        scan_capped = bool(fetch.scanned >= scan_limit)
-        plan = build_window_plan(
-            fetch.items,
-            existing_keys,
-            latest_count,
-            complete=bool(fetch.complete and fetch.items),
-            scan_capped=scan_capped,
-        )
-        print(f"[孔夫子] {summarize_plan(plan, latest_count)}")
-        if plan.is_baseline_run:
-            print("[孔夫子] 首轮运行：按基线入库，不发送通知")
+            fetch = await client.fetch_items(
+                keyword,
+                scan_limit=scan_limit,
+                page_size=page_size,
+            )
 
-        notify_items = plan.new_listing_items
-        if debug_limit and debug_limit > 0:
-            notify_items = notify_items[:debug_limit]
-            print(f"[孔夫子] 调试模式：最多处理 {debug_limit} 个新上架商品")
+            # 伪装层：抓完后随机做几次"正常浏览"，让整轮请求看起来像人在逛
+            await client.decoy_actions(fetch.items)
 
-        # 递补（因在售商品下架而补位）与首轮基线：只入库，不通知。
-        await _save_silent_items(
-            plan.backfill_items,
-            keyword=keyword,
-            task_name=task_name,
-            entry_type="backfill",
-            reason="因在售商品下架而递补进入监控窗口（不通知）",
-        )
-        await _save_silent_items(
-            plan.baseline_items,
-            keyword=keyword,
-            task_name=task_name,
-            entry_type=None,
-            reason="初始监控样本基线（不通知）",
-        )
+    scan_capped = bool(fetch.scanned >= scan_limit)
+    plan = build_window_plan(
+        fetch.items,
+        existing_keys,
+        latest_count,
+        complete=bool(fetch.complete and fetch.items),
+        scan_capped=scan_capped,
+    )
+    print(f"[孔夫子] {summarize_plan(plan, latest_count)}")
+    if plan.is_baseline_run:
+        print("[孔夫子] 首轮运行：按基线入库，不发送通知")
 
-        processed = await _process_new_listing_items(
-            new_listing_items=notify_items,
-            task_config=task_config,
-            keyword=keyword,
-            notify_all_new=notify_all_new,
-            decision_mode=decision_mode,
-            keyword_rules=keyword_rules,
-            prompt_text=prompt_text,
-            analyze_images=analyze_images,
-        )
+    notify_items = plan.new_listing_items
+    if debug_limit and debug_limit > 0:
+        notify_items = notify_items[:debug_limit]
+        print(f"[孔夫子] 调试模式：最多处理 {debug_limit} 个新上架商品")
 
-        if not plan.complete:
-            print("[孔夫子] 本次抓取不完整，跳过窗口同步（不会删除任何本地记录）")
-        else:
-            removed = plan.removed_keys
-            sync_result = await sync_monitor_window(keyword, PLATFORM, plan.window_keys)
-            removed = sync_result.get("removed") or []
-            if removed:
-                print(f"[孔夫子] 已移除 {len(removed)} 条记录（下架/售出/被新商品挤出窗口）")
-            if notify_removal:
-                await _notify_removed(removed, rows_by_key, plan.sold_keys, keyword, task_name)
+    # 递补（因在售商品下架而补位）与首轮基线：只入库，不通知。
+    await _save_silent_items(
+        plan.backfill_items,
+        keyword=keyword,
+        task_name=task_name,
+        entry_type="backfill",
+        reason="因在售商品下架而递补进入监控窗口（不通知）",
+    )
+    await _save_silent_items(
+        plan.baseline_items,
+        keyword=keyword,
+        task_name=task_name,
+        entry_type=None,
+        reason="初始监控样本基线（不通知）",
+    )
 
-        # 伪装层：抓完后随机做几次“正常浏览”，让整轮请求看起来像人在逛
-        await client.decoy_actions(fetch.items)
+    processed = await _process_new_listing_items(
+        new_listing_items=notify_items,
+        task_config=task_config,
+        keyword=keyword,
+        notify_all_new=notify_all_new,
+        decision_mode=decision_mode,
+        keyword_rules=keyword_rules,
+        prompt_text=prompt_text,
+        analyze_images=analyze_images,
+    )
+
+    if not plan.complete:
+        print("[孔夫子] 本次抓取不完整，跳过窗口同步（不会删除任何本地记录）")
+    else:
+        removed = plan.removed_keys
+        sync_result = await sync_monitor_window(keyword, PLATFORM, plan.window_keys)
+        removed = sync_result.get("removed") or []
+        if removed:
+            print(f"[孔夫子] 已移除 {len(removed)} 条记录（下架/售出/被新商品挤出窗口）")
+        if notify_removal:
+            await _notify_removed(removed, rows_by_key, plan.sold_keys, keyword, task_name)
 
     # 运行报表：记录「这一轮真的跑了」以及本轮结果，供界面展示
     record_monitor_run_sync(

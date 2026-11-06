@@ -279,6 +279,16 @@ const enUSExtra = {
   kongfz: {
     title: 'Kongfz Monitor',
     subtitle: 'Sync a window against the site "latest listings" order: always keep the newest N items on sale; new listings roll in, delisted/sold items roll out.',
+    playwright: {
+      title: 'Playwright Fallback Mode',
+      description: 'When enabled, uses a real browser to fetch Kongfz data, effectively bypassing anti-bot detection. When disabled, uses the original HTTP API method.',
+      on: 'Browser mode',
+      off: 'HTTP mode',
+      enabled: 'Playwright fallback mode enabled',
+      disabled: 'Playwright fallback disabled, using original HTTP method',
+      effectiveHint: 'Note: changes take effect on the next task run (currently running tasks are unaffected).',
+      effectiveNote: 'Setting saved. It takes effect on the next scrape or task restart; currently running tasks are unaffected.',
+    },
     actions: {
       newMonitor: 'New monitor',
       viewWindow: 'View window',
@@ -300,6 +310,7 @@ const enUSExtra = {
       empty: 'No Kongfz session yet. Click "Scan to log in" first.',
       cookieOk: 'has kongfz cookies',
       cookieMissing: 'no kongfz cookies',
+      effectiveNote: 'Account changes take effect on the next scrape.',
       updatedAt: 'Updated',
       cookieCount: '{count} cookies',
       verify: 'Verify',
@@ -397,6 +408,7 @@ const enUSExtra = {
       loginFailed: 'QR login did not complete',
       preview: 'Preview failed',
       import: 'Failed to import the session',
+      playwright: 'Failed to toggle Playwright mode',
     },
   },
 }
